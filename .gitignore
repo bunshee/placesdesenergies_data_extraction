@@ -1,0 +1,6 @@
+*.pdf
+env
+.ruff_cache
+.venv
+__pycache__/
+.mypy_cache/
