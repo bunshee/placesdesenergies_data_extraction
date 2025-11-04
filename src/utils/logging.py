@@ -1,28 +1,29 @@
-from __future__ import annotations
+import sys
 
-import os
 from loguru import logger
 
 
-def configure_logger() -> None:
-    # Remove default handler to avoid duplicates if reconfigured
+def init_logger(log_level: str = "INFO"):
+    """
+    Initializes the loguru logger to output only to the console (sys.stderr).
+
+    Args:
+        log_level (str): Minimum logging level ('DEBUG', 'INFO', 'WARNING', 'ERROR').
+
+    Returns:
+        logger: Configured logger instance
+    """
     logger.remove()
-    level = os.getenv("LOG_LEVEL", "INFO")
-    fmt = os.getenv(
-        "LOG_FORMAT",
-        "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-        "<level>{level: <8}</level> | "
-        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-        "<level>{message}</level>",
-    )
     logger.add(
-        lambda msg: print(msg, end=""),
-        level=level,
-        format=fmt,
-        enqueue=True,
-        backtrace=False,
-        diagnose=False,
+        sys.stderr,
+        level=log_level.upper(),
+        colorize=True,
+        format="<green>{time:HH:mm:ss}</green> | "
+        "<level>{level: <8}</level> | "
+        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
     )
 
-
-__all__ = ["logger", "configure_logger"]
+    logger.info(
+        f"Logger initialized. Logging level: {log_level.upper()}. (Console only)"
+    )
+    return logger

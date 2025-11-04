@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Iterator
 
-import fitz  # PyMuPDF
+import fitz
 
 
 def iter_pdf_pages_text(pdf_path: str | Path) -> Iterator[tuple[int, str]]:
