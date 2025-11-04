@@ -24,24 +24,17 @@ Chaque enregistrement doit être rattaché à la date du document (ou période d
 - Entrées: PDF natifs, PDF scannés, images (JPEG/PNG).
 - Détection du type (facture énergie vs non pertinent) via un classifieur léger texte+mise en page, avec filtre par mots-clés robustes (exclusion eau/entretien/fioul, etc.).
 
-2) Prétraitement & OCR
-- PDFs natifs: extraction texte + positions via `pdfplumber`/`pypdfium2`.
-- Scans/images: OCR via `PaddleOCR` ou `Tesseract` (avec prétraitements OpenCV: binarisation, deskew, denoise), et extraction de la mise en page via `layoutparser`/`docTR` si besoin.
+2) Extraction du texte PDF
+- PDFs natifs: extraction texte via PyMuPDF (`pymupdf`).
+- Scans/images: non pris en charge dans cette version (pas d'OCR).
 
 3) Détection fournisseur
 - Approche hybride:
   - Vision (logo/entête) via classifieur CNN/ViT léger (ex: `timm` ViT-Tiny) fine-tuné sur logos/entêtes.
   - Fallback texte (fuzzy matching) sur mentions: EDF, Engie, Gaz Européen, etc.
 
-4) Extraction de champs (NLP + règles)
-- Repérage des blocs sémantiques: « Vos informations client », « Point de livraison », « Données de comptage », etc.
-- Regex robustes pour PCE/PDL/PRM (longueurs/formats), code postal, SIREN/SIRET.
-- Heuristiques d’adresse multi-lignes; normalisation via `libpostal` (optionnel) et séparation code postal/commune.
-- Classification de segment énergie:
-  - Gaz vs Électricité (mots-clés + modèle texte court)
-  - Offre: Prix Fixe / Contrat Garanti / Offre verte / TRV…
-  - Segment: T1–T4 (gaz), C1–C5 (élec.), par règles et motifs fréquents.
-- Dates: extraction et normalisation (formats FR), inférence de l’échéance si explicitée; sinon consigner « Souscrit depuis », « Préavis », « Révision annuelle ».
+4) Extraction de champs (GenAI)
+- Appel Google Gemini (`gemini-2.5-flash`) avec sortie structurée (schéma Pydantic) à partir du texte extrait.
 
 5) Normalisation & validation
 - Modèle `Pydantic` pour valider types, formats, contraintes (PCE/PDL/PRM: 14 chiffres, code postal 5 chiffres, etc.).
@@ -57,11 +50,8 @@ Chaque enregistrement doit être rattaché à la date du document (ou période d
 
 ## Choix technologiques (state of the art pragmatique)
 - Langage: Python 3.11+
-- PDFs natifs: `pdfplumber`, `pypdfium2` (rapide, positions), `pdfminer.six` (fallback).
-- OCR: `PaddleOCR` (qualité + vitesse) ou `Tesseract` (large diffusion) avec `opencv-python` pour les prétraitements.
-- Layout: `layoutparser` + backends Detectron2 ou `doctr` (Mindee) pour segments de page.
-- NLP: `regex`, `spaCy` (FR), `rapidfuzz` (fuzzy), mini-classifieur `scikit-learn` ou petit `transformers` (DistilBERT) pour triage fournisseur/document.
-- Vision (logos): `timm`/ViT-Tiny ou MobileNetV3; export onnx possible.
+- PDFs natifs: `pymupdf` pour texte.
+- Extraction structurée: `google-genai` (ou fallback `google-generativeai`) avec modèle `gemini-2.5-flash` et schéma Pydantic.
 - Normalisation & schéma: `pydantic` v2.
 - Orchestration: pipeline modulaire (lib simple) + CLI via `typer`.
 - Tests: `pytest`, `hypothesis` (génération), jeux d’essai PDF.
@@ -182,9 +172,7 @@ placesdesenergies_data_extraction/
 python -m venv .venv && source .venv/bin/activate
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-# Option OCR:
-# - Tesseract: sudo apt-get install tesseract-ocr tesseract-ocr-fra
-# - ou PaddleOCR: pip install "paddleocr>=2.8.0" "opencv-python>=4.10"
+export GEMINI_API_KEY=your_api_key_here
 ```
 
 Exemple de `requirements.txt` (indicatif):

@@ -5,6 +5,9 @@ EnergyReferenceType = Literal["PCE", "PDL", "PRM"]
 
 
 class EnergyInvoiceRecord(BaseModel):
+    is_energy_invoice: Optional[bool] = Field(
+        None, description="Model judgement whether the document is an energy invoice"
+    )
     document_date: Optional[str] = Field(None, description="YYYY-MM-DD si connu")
     supplier: Optional[str]
     site_name: Optional[str]

@@ -6,114 +6,55 @@ from typing import Iterable
 import pandas as pd
 
 from src.ingestion.loader import load_pdf_text, load_pdf_text_bytes
-from src.extraction.fields import (
-    extract_supplier,
-    extract_energy_reference,
-    extract_postal_and_city,
-    extract_siren_siret,
-    extract_dates,
-    extract_offer_and_segment,
-    extract_site_name,
-)
-from src.normalize.validators import normalize_reference, normalize_city
 from src.models.schema import EnergyInvoiceRecord
+from src.genai.extractor import extract_invoice_from_text
+from loguru import logger
 
 
-def is_energy_invoice(text: str) -> bool:
-    text_u = text.upper()
-    if any(
-        k in text_u
-        for k in ["EDF", "ENGIE", "GAZ EUROPEEN", "GAZ DE PARIS", "ENEDIS", "GRDF"]
-    ):
-        if any(
-            k in text_u
-            for k in ["FACTURE", "FACTURATION", "FACTURE N", "N\u00b0 DE FACTURE"]
-        ):
-            return True
-    # fallback keyword pairs
-    return (
-        any(k in text_u for k in ["POINT DE LIVRAISON", "PCE", "PDL", "PRM"])
-        and "FACT" in text_u
-    )
+def is_energy_invoice(_: str) -> bool:
+    # Delegated to the LLM; retained for compatibility
+    return True
 
 
 def process_pdf(pdf_path: str | Path) -> tuple[EnergyInvoiceRecord | None, dict]:
+    logger.info("Processing PDF file: {}", pdf_path)
     text = load_pdf_text(pdf_path)
     if not text.strip():
+        logger.warning("No text extracted from {}", pdf_path)
         return None, {"reason": "no_text"}
-    if not is_energy_invoice(text):
+    record = extract_invoice_from_text(text)
+    if record is None:
+        logger.info("Model judged not an energy invoice: {}", pdf_path)
         return None, {"reason": "not_energy_invoice"}
-
-    supplier = extract_supplier(text)
-    energy_ref, energy_ref_type = extract_energy_reference(text)
-    energy_ref = normalize_reference(energy_ref)
-
-    postal_code, city = extract_postal_and_city(text)
-    city = normalize_city(city)
-
-    siren_siret = extract_siren_siret(text)
-    doc_date, expiry, start_date = extract_dates(text)
-    energy_segment, tags, tariff, regulated = extract_offer_and_segment(text)
-    site_name = extract_site_name(text)
-
-    record = EnergyInvoiceRecord(
-        document_date=doc_date,
-        supplier=supplier,
-        site_name=site_name,
-        energy_reference=energy_ref,
-        energy_reference_type=energy_ref_type,
-        energy_reference_length=len(energy_ref) if energy_ref else None,
-        postal_code=postal_code,
-        city=city,
-        energy_segment=energy_segment,
-        offer_tags=tags or [],
-        tariff_segment=tariff,
-        contract_expiry_date=expiry,
-        contract_start_date=start_date,
-        client_siren_siret=siren_siret,
-        regulated_tariff=regulated,
-    )
-
+    if record.energy_reference:
+        record.energy_reference_length = len(record.energy_reference)
+        logger.info(
+            "Extracted ref={} supplier={} date={}",
+            record.energy_reference,
+            record.supplier,
+            record.document_date,
+        )
     return record, {"file": str(pdf_path)}
 
 
 def process_pdf_bytes(pdf_bytes: bytes) -> tuple[EnergyInvoiceRecord | None, dict]:
+    logger.debug("Processing PDF bytes: size={} bytes", len(pdf_bytes))
     text = load_pdf_text_bytes(pdf_bytes)
     if not text.strip():
+        logger.warning("No text extracted from bytes input")
         return None, {"reason": "no_text"}
-    if not is_energy_invoice(text):
+    record = extract_invoice_from_text(text)
+    if record is None:
+        logger.info("Model judged not an energy invoice for bytes input")
         return None, {"reason": "not_energy_invoice"}
-
-    supplier = extract_supplier(text)
-    energy_ref, energy_ref_type = extract_energy_reference(text)
-    energy_ref = normalize_reference(energy_ref)
-
-    postal_code, city = extract_postal_and_city(text)
-    city = normalize_city(city)
-
-    siren_siret = extract_siren_siret(text)
-    doc_date, expiry, start_date = extract_dates(text)
-    energy_segment, tags, tariff, regulated = extract_offer_and_segment(text)
-    site_name = extract_site_name(text)
-
-    record = EnergyInvoiceRecord(
-        document_date=doc_date,
-        supplier=supplier,
-        site_name=site_name,
-        energy_reference=energy_ref,
-        energy_reference_type=energy_ref_type,
-        energy_reference_length=len(energy_ref) if energy_ref else None,
-        postal_code=postal_code,
-        city=city,
-        energy_segment=energy_segment,
-        offer_tags=tags or [],
-        tariff_segment=tariff,
-        contract_expiry_date=expiry,
-        contract_start_date=start_date,
-        client_siren_siret=siren_siret,
-        regulated_tariff=regulated,
-    )
-
+    if record.energy_reference:
+        record.energy_reference_length = len(record.energy_reference)
+        logger.debug(
+            "Extracted ref={} supplier={} date={}",
+            record.energy_reference,
+            record.supplier,
+            record.document_date,
+        )
     return record, {"file": "bytes"}
 
 
