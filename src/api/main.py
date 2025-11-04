@@ -9,7 +9,11 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from src.ingestion.loader import load_pdf_text_bytes
 from src.models.schema import EnergyInvoiceRecord
 from src.pipeline import deduplicate_latest, process_pdf_bytes
+from src.utils.logging import configure_logger
+from loguru import logger
+from src.genai.extractor import extract_invoice_from_text
 
+configure_logger()
 app = FastAPI(title="Energy Invoice Extraction API", version="0.1.0")
 
 
@@ -19,25 +23,59 @@ def health() -> dict[str, str]:
 
 
 @app.post("/extract", response_model=EnergyInvoiceRecord | None)
-async def extract(file: Annotated[UploadFile, File(description="PDF file")]):
+async def extract(
+    file: Annotated[UploadFile, File(description="PDF file")],
+    accept_non_invoice: bool = Query(
+        False, description="Return record even if judged not energy invoice"
+    ),
+):
     if file.content_type not in {"application/pdf", "application/octet-stream"}:
         raise HTTPException(status_code=415, detail="Unsupported media type")
     data = await file.read()
-    rec, meta = process_pdf_bytes(data)
+    logger.info(
+        "/extract received file: name={}, size={} bytes", file.filename, len(data)
+    )
+    if not accept_non_invoice:
+        rec, meta = process_pdf_bytes(data)
+    else:
+        # Bypass filter: call extractor directly and allow non-invoice records
+        text = load_pdf_text_bytes(data)
+        rec = extract_invoice_from_text(text, accept_non_invoice=True)
+    if rec is None:
+        logger.warning(
+            "/extract: not energy invoice or empty text for file {}", file.filename
+        )
+    else:
+        logger.info(
+            "/extract: extracted reference={} supplier={} date={}",
+            rec.energy_reference,
+            rec.supplier,
+            rec.document_date,
+        )
     return rec
 
 
 @app.post("/extract/batch")
-async def extract_batch(files: list[UploadFile]):
+async def extract_batch(
+    files: list[UploadFile], accept_non_invoice: bool = Query(False)
+):
     results: list[EnergyInvoiceRecord] = []
     for f in files:
         if f.content_type not in {"application/pdf", "application/octet-stream"}:
             continue
         data = await f.read()
-        rec, _ = process_pdf_bytes(data)
+        logger.info(
+            "/extract/batch processing: name={}, size={} bytes", f.filename, len(data)
+        )
+        if not accept_non_invoice:
+            rec, _ = process_pdf_bytes(data)
+        else:
+            text = load_pdf_text_bytes(data)
+            rec = extract_invoice_from_text(text, accept_non_invoice=True)
         if rec is not None:
             results.append(rec)
     dedup = deduplicate_latest(results)
+    logger.info("/extract/batch: {} records after dedup", len(dedup))
     return JSONResponse(content=[r.model_dump() for r in dedup])
 
 
@@ -62,6 +100,9 @@ async def pdf_text(
     raw_text = load_pdf_text_bytes(data)
     # Unescape any HTML entities that might appear; keep unicode as-is
     unescaped = html_lib.unescape(raw_text)
+    logger.info(
+        "/text: returned {} characters for file {}", len(unescaped), file.filename
+    )
 
     if format == "plain":
         return PlainTextResponse(content=unescaped)
