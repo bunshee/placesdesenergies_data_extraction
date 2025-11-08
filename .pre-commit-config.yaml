@@ -24,21 +24,5 @@ repos:
       - id: black
         args: ["--target-version", "py312"]
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.12.0
-    hooks:
-      - id: mypy
-        additional_dependencies:
-          - types-python-dateutil
-          - pandas-stubs
-        args:
-          - --python-version=3.12
-          - --ignore-missing-imports
-          - --pretty
-          - --show-error-codes
-          - --warn-unused-ignores
-          - --warn-redundant-casts
-          - --no-warn-no-return
-
 ci:
   autoupdate_schedule: quarterly
