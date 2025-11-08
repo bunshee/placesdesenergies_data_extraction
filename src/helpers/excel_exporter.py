@@ -2,7 +2,15 @@ from io import BytesIO
 from typing import List
 
 from openpyxl import Workbook
+
 from src.models.schema import EnergyInvoiceRecord
+
+
+def _clean_value(value):
+    """Replace 'N/A' with empty string, keep None as None."""
+    if value == "N/A":
+        return ""
+    return value
 
 
 def export_to_excel(data: List[EnergyInvoiceRecord], output: BytesIO):
@@ -30,21 +38,21 @@ def export_to_excel(data: List[EnergyInvoiceRecord], output: BytesIO):
     for record in data:
         ws.append(
             [
-                record.site_name,
-                record.energy_reference,
-                record.address_consumption,
-                record.postal_code,
-                record.city,
-                record.energy_segment,
+                _clean_value(record.site_name),
+                _clean_value(record.energy_reference),
+                _clean_value(record.address_consumption),
+                _clean_value(record.postal_code),
+                _clean_value(record.city),
+                _clean_value(record.energy_segment),
                 "Oui" if record.regulated_tariff == "Oui" else "Non",
                 (
                     record.contract_expiry_date.strftime("%Y-%m-%d")
                     if record.contract_expiry_date
-                    else None
+                    else ""
                 ),
-                record.supplier,
-                record.termination_notice,
-                record.client_siren_siret,
+                _clean_value(record.supplier),
+                _clean_value(record.termination_notice),
+                _clean_value(record.client_siren_siret),
             ]
         )
 
