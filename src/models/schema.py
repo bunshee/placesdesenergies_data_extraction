@@ -1,11 +1,13 @@
-from typing import Optional, Literal
-from pydantic import BaseModel, Field
 from datetime import date
+from typing import Literal, Optional
+
+from pydantic import BaseModel, Field
 
 EnergyReferenceType = Literal["PCE", "PDL", "PRM"]
 
 
 class EnergyInvoiceRecord(BaseModel):
+    # Invoice data fields
     document_date: Optional[date] = Field(None, description="YYYY-MM-DD si connu")
     supplier: Optional[str]
     site_name: Optional[str]
@@ -25,3 +27,11 @@ class EnergyInvoiceRecord(BaseModel):
     renewal_terms: Optional[str]
     client_siren_siret: Optional[str]
     regulated_tariff: Optional[Literal["Oui", "Non"]]
+
+    # Validation fields (used by extractor)
+    is_valid_energy_invoice: bool = Field(
+        default=True, description="Whether this is a valid energy invoice"
+    )
+    rejection_reason: Optional[str] = Field(
+        default=None, description="Reason for rejection if not valid"
+    )
