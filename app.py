@@ -46,6 +46,8 @@ def display_pdf(file):
 
 
 def main():
+    st.set_page_config(layout="wide", page_title="Extraction Factures")
+
     st.title("Extraction de données de factures d'énergie")
     st.markdown(
         "Téléchargez une facture d'énergie pour extraire automatiquement les informations clés."
@@ -55,15 +57,10 @@ def main():
         """
     <style>
         .main .block-container {
-            max-width: 1200px;
+            max-width: 100%;
             padding-top: 2rem;
-        }
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 8px;
-        }
-        .stTabs [data-baseweb="tab"] {
-            height: 40px;
-            padding: 0 16px;
+            padding-left: 2rem;
+            padding-right: 2rem;
         }
     </style>
     """,
@@ -89,23 +86,25 @@ def main():
     if uploaded_file is not None:
         st.success("Fichier téléchargé avec succès!")
 
-        tab1, tab2 = st.tabs(["📄 Aperçu du PDF", "📋 Données extraites"])
+        # Create two columns: 60% for PDF, 40% for results
+        col_pdf, col_results = st.columns([0.6, 0.4], gap="medium")
 
-        with tab1:
+        with col_pdf:
+            st.subheader("📄 Aperçu du PDF")
             # Displaying embedded PDF instead of images
             display_pdf(uploaded_file)
 
-        with tab2:
-            st.subheader("Données extraites")
+        with col_results:
+            st.subheader("📋 Données extraites")
 
             # Get defaults based on filename
             defaults = get_extraction_defaults(uploaded_file.name)
 
             # Display detected info and controls
-            col1, col2 = st.columns(2)
-            with col1:
-                st.info(f"**Fournisseur détecté:** {defaults['supplier']}")
-            with col2:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.info(f"**Fournisseur:** {defaults['supplier']}")
+            with c2:
                 # Default value for input
                 default_pages_input = ""
                 if defaults["first_page"] and defaults["last_page"]:
@@ -117,12 +116,16 @@ def main():
                         )
 
                 pages_input = st.text_input(
-                    "Pages à analyser (ex: 3, 1-3, ou vide pour tout)",
+                    "Pages",
                     value=default_pages_input,
-                    help="Laissez vide pour analyser tout le document. Entrez un numéro (ex: 3) ou une plage (ex: 1-3).",
+                    help="Ex: 3, 1-3",
+                    label_visibility="collapsed",
+                    placeholder="Pages (ex: 3)",
                 )
 
-            if st.button("Lancer l'extraction", type="primary"):
+            if st.button(
+                "Lancer l'extraction", type="primary", use_container_width=True
+            ):
                 with st.spinner("Extraction des données en cours..."):
                     try:
                         # Parse page input
@@ -157,7 +160,7 @@ def main():
                             and "error" in result
                             and "extraction" not in result
                         ):
-                            st.error(f"Erreur lors de l'extraction: {result['error']}")
+                            st.error(f"Erreur: {result['error']}")
                             # We continue to show what we can if possible, but usually return here
 
                         extracted_pdf_data = (
@@ -174,7 +177,7 @@ def main():
                         # Display metadata (actual used values)
                         if metadata:
                             st.success(
-                                f"Extraction terminée pour: {metadata.get('supplier', 'Inconnu')} ({metadata.get('pages', 'Inconnu')})"
+                                f"Extraction terminée ({metadata.get('pages', 'Inconnu')})"
                             )
 
                         # Handle errors that might be returned with metadata
@@ -183,7 +186,7 @@ def main():
                             and "error" in result
                             and result["error"]
                         ):
-                            st.error(f"Erreur lors de l'extraction: {result['error']}")
+                            st.error(f"Erreur: {result['error']}")
 
                         if not extracted_pdf_data and (
                             not isinstance(result, dict) or "error" not in result
@@ -219,14 +222,14 @@ def main():
                                     "Champ": [
                                         "Fichier",
                                         "Raison sociale",
-                                        "Fournisseur actuel",
+                                        "Fournisseur",
                                         "Adresse",
                                         "Code Postal",
                                         "Ville",
-                                        "Référence PDL/PCE",
+                                        "PDL/PCE",
                                         "Segment",
                                         "Tarif Réglementé",
-                                        "Date d'échéance",
+                                        "Echéance",
                                     ],
                                     "Valeur": [
                                         filename_data["nom du fichier"],
@@ -260,8 +263,6 @@ def main():
                                     ],
                                 }
 
-                                st.subheader("📋 Informations extraites")
-
                                 st.dataframe(
                                     table_data,
                                     column_config={
@@ -273,7 +274,6 @@ def main():
                                         ),
                                     },
                                     hide_index=True,
-                                    # Updated according to the warning: use 'stretch' for full width
                                     width="stretch",
                                 )
 
@@ -281,14 +281,15 @@ def main():
                                     extracted_pdf_data, indent=2, ensure_ascii=False
                                 )
                                 st.download_button(
-                                    label="Télécharger les données brutes (JSON)",
+                                    label="Télécharger JSON",
                                     data=json_data,
                                     file_name=f"extraction_{Path(uploaded_file.name).stem}.json",
                                     mime="application/json",
+                                    use_container_width=True,
                                 )
 
                     except Exception as e:
-                        st.error(f"Une erreur est survenue: {str(e)}")
+                        st.error(f"Erreur: {str(e)}")
                         st.exception(e)
 
 
