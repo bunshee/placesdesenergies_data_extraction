@@ -13,6 +13,34 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 
+IGNORED_PATTERNS = [
+    "abypas",
+    "adi incendie",
+    "adi sas",
+    "albasini",
+    "tmd securite",
+    "secat",
+    "scem",
+    "sani chauff",
+    "s.p.m. nicolai",
+    "rym",
+    "riva paysages",
+    "renovtoiture",
+    "plagnol nettoyage",
+    "nordtherm_",
+    "my renovation et neuf",
+    "long chauffage",
+    "h.saint paul",
+    "gesten",
+    "gazflash",
+    "albert & fils",
+    "bouvier",
+    "disdero",
+    "delostal",
+    "charles pereira",
+]
+
+
 def get_extraction_defaults(filename):
     """
     Determine default extraction settings based on filename.
@@ -23,6 +51,16 @@ def get_extraction_defaults(filename):
     last_page = None
 
     filename_lower = filename.lower() if filename else ""
+
+    # Check for ignored patterns
+    for pattern in IGNORED_PATTERNS:
+        if pattern in filename_lower:
+            return {
+                "supplier": "IGNORED",
+                "pages_description": "N/A",
+                "first_page": None,
+                "last_page": None,
+            }
 
     if "engie" in filename_lower:
         supplier = "ENGIE"
@@ -44,6 +82,24 @@ def get_extraction_defaults(filename):
         pages_desc = "Page 2"
         first_page = 2
         last_page = 2
+    elif "gaz de paris" in filename_lower:
+        supplier = "GAZ DE PARIS"
+        pages_desc = "Tout le document"
+        first_page = None
+        last_page = None
+    elif (
+        "gaz tarif reglemente" in filename_lower
+        or "gaz tarif réglementé" in filename_lower
+    ):
+        supplier = "GAZ TARIF REGLEMENTE"
+        pages_desc = "Tout le document"
+        first_page = None
+        last_page = None
+    elif "gaz tarif recouvrement" in filename_lower:
+        supplier = "GAZ TARIF RECOUVREMENT"
+        pages_desc = "Tout le document"
+        first_page = None
+        last_page = None
     elif "edf" in filename_lower:
         supplier = "EDF"
         pages_desc = "Page 3"
@@ -54,6 +110,13 @@ def get_extraction_defaults(filename):
         pages_desc = "Page 2"
         first_page = 2
         last_page = 2
+    elif (
+        "gaz de france provalys" in filename_lower or "gaz de france" in filename_lower
+    ):
+        supplier = "GAZ DE FRANCE PROVALYS"
+        pages_desc = "Tout le document"
+        first_page = None
+        last_page = None
 
     return {
         "supplier": supplier,
@@ -63,7 +126,7 @@ def get_extraction_defaults(filename):
     }
 
 
-def extract_data(pdf_input, first_page=None, last_page=None):
+def extract_data(pdf_input, first_page=None, last_page=None, supplier=None):
     """
     Extract data from a PDF file.
 
@@ -78,6 +141,16 @@ def extract_data(pdf_input, first_page=None, last_page=None):
     try:
         # Metadata for response
         supplier_detected = "Inconnu"
+        if supplier == "IGNORED":
+            return {
+                "extraction": None,
+                "metadata": {
+                    "supplier": supplier_detected,
+                    "pages": "N/A",
+                },
+                "error": "Document ignoré : ce fichier n'est pas une facture d'énergie reconnue.",
+            }
+
         pages_description = (
             f"Pages {first_page}-{last_page}"
             if first_page and last_page
@@ -194,14 +267,42 @@ def extract_data(pdf_input, first_page=None, last_page=None):
             "required": ["adresse", "code_postal", "ville"],
         }
 
-        prompt = """
-        Analyze this energy invoice. Extract the following:
-        - Address: Split the street line into 'street_number' and 'street_name'.
-        - 'Reference Point d'Energie' or PDL/PCE (14 digits).
-        - 'Segment' (look for codes like T1, T2, C5, C4 near 'Acheminement').
-        - 'Date d'échéance' (Contract end date).
-        - 'Tarif reglemente': True only if strictly TRV/Blue Tariff, else False (e.g. for 'Prix Fixe').
-        """
+        if supplier == "GAZ DE FRANCE PROVALYS":
+            prompt = """
+            Analyze this energy invoice. Extract the following:
+            - Address: Split the street line into 'street_number' and 'street_name'.
+            - 'Reference Point d'Energie': Look for 'Réf Acheminement Electricité' or 'Référence acheminement' (14 digits).
+            - 'Segment' (look for codes like T1, T2, C5, C4 near 'Acheminement').
+            - 'Date d'échéance' (Contract end date).
+            - 'Tarif reglemente': True only if strictly TRV/Blue Tariff, else False (e.g. for 'Prix Fixe').
+            """
+        elif supplier in ["GAZ BORDEAUX", "GAZ DE PARIS"]:
+            prompt = """
+            Analyze this energy invoice. Extract the following:
+            - Address: Split the street line into 'street_number' and 'street_name'.
+            - 'Reference Point d'Energie': Look for 'N° Point de livraison' (14 digits).
+            - 'Segment' (look for codes like T1, T2, C5, C4 near 'Acheminement').
+            - 'Date d'échéance' (Contract end date).
+            - 'Tarif reglemente': True only if strictly TRV/Blue Tariff, else False (e.g. for 'Prix Fixe').
+            """
+        elif supplier in ["GAZ TARIF REGLEMENTE", "GAZ TARIF RECOUVREMENT"]:
+            prompt = """
+            Analyze this energy invoice. Extract the following:
+            - Address: Split the street line into 'street_number' and 'street_name'.
+            - 'Reference Point d'Energie': Look for 'Point de comptage et d'estimation' or 'Point de comptage et d'estimalion' (14 digits).
+            - 'Segment' (look for codes like T1, T2, C5, C4 near 'Acheminement').
+            - 'Date d'échéance' (Contract end date).
+            - 'Tarif reglemente': True only if strictly TRV/Blue Tariff, else False (e.g. for 'Prix Fixe').
+            """
+        else:
+            prompt = """
+            Analyze this energy invoice. Extract the following:
+            - Address: Split the street line into 'street_number' and 'street_name'.
+            - 'Reference Point d'Energie' or PDL/PCE (14 digits).
+            - 'Segment' (look for codes like T1, T2, C5, C4 near 'Acheminement').
+            - 'Date d'échéance' (Contract end date).
+            - 'Tarif reglemente': True only if strictly TRV/Blue Tariff, else False (e.g. for 'Prix Fixe').
+            """
 
         # 4. Call Gemini 2.5 Flash
         try:

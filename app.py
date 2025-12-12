@@ -151,7 +151,10 @@ def main():
                         filename_data = parse_filename(uploaded_file.name)
 
                         result = extract_data(
-                            uploaded_file, first_page=first_page, last_page=last_page
+                            uploaded_file,
+                            first_page=first_page,
+                            last_page=last_page,
+                            supplier=defaults["supplier"],
                         )
 
                         # Check for error in the top-level dictionary
