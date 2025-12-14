@@ -8,10 +8,8 @@ from google import genai
 from google.genai import types
 from pdf2image import convert_from_path
 
-# Load environment variables
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
 
 IGNORED_PATTERNS = [
     "abypas",
@@ -52,7 +50,6 @@ def get_extraction_defaults(filename):
 
     filename_lower = filename.lower() if filename else ""
 
-    # Check for ignored patterns
     for pattern in IGNORED_PATTERNS:
         if pattern in filename_lower:
             return {
@@ -134,6 +131,7 @@ def extract_data(pdf_input, first_page=None, last_page=None, supplier=None):
         pdf_input: Can be either a file path (str) or a file-like object
         first_page: First page to extract (1-based index)
         last_page: Last page to extract (1-based index)
+        supplier: Energy supplier for specific extraction rules
 
     Returns:
         dict: Extracted data in the specified schema or error message
@@ -157,12 +155,8 @@ def extract_data(pdf_input, first_page=None, last_page=None, supplier=None):
             else "Tout le document"
         )
 
-        # If pages not specified, check if we should use defaults based on filename (fallback)
-        # However, for the interactive workflow, we expect these to be passed.
-        # We'll just use what's passed.
-
         # 1. Convert PDF to images
-        if hasattr(pdf_input, "read"):  # It's a file-like object
+        if hasattr(pdf_input, "read"):
             # Save to a temporary file since convert_from_path needs a file path
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 pdf_input.seek(0)  # Ensure we're at the start of the file
@@ -272,7 +266,17 @@ def extract_data(pdf_input, first_page=None, last_page=None, supplier=None):
             Analyze this energy invoice. Extract the following:
             - Address: Split the street line into 'street_number' and 'street_name'.
             - 'Reference Point d'Energie': Look for 'Réf Acheminement Electricité' or 'Référence acheminement' (14 digits).
-            - 'Segment' (look for codes like T1, T2, C5, C4 near 'Acheminement').
+            - 'Segment': FORCIBLY return one of these codes ONLY: C1, C2, C3, C4, C5 (Electricity) or T1, T2, T3, T4 (Gas).
+              Use these rules to identify/verify:
+              * C5: Power <= 36 kVA, Low Voltage (BT)
+              * C4: Power 37-250 kVA, Low Voltage (BT)
+              * C3: Power <= 250 kVA, High Voltage (HTA)
+              * C2: Power > 250 kVA, High Voltage (HTA)
+              * C1: Power > 40,000 kVA, High Voltage (HT)
+              * T1: Gas < 6 MWh/year
+              * T2: Gas 6-300 MWh/year
+              * T3: Gas 300-5000 MWh/year
+              * T4: Gas > 5000 MWh/year
             - 'Date d'échéance' (Contract end date).
             - 'Tarif reglemente': True only if strictly TRV/Blue Tariff, else False (e.g. for 'Prix Fixe').
             """
@@ -281,7 +285,17 @@ def extract_data(pdf_input, first_page=None, last_page=None, supplier=None):
             Analyze this energy invoice. Extract the following:
             - Address: Split the street line into 'street_number' and 'street_name'.
             - 'Reference Point d'Energie': Look for 'N° Point de livraison' (14 digits).
-            - 'Segment' (look for codes like T1, T2, C5, C4 near 'Acheminement').
+            - 'Segment': FORCIBLY return one of these codes ONLY: C1, C2, C3, C4, C5 (Electricity) or T1, T2, T3, T4 (Gas).
+              Use these rules to identify/verify:
+              * C5: Power <= 36 kVA, Low Voltage (BT)
+              * C4: Power 37-250 kVA, Low Voltage (BT)
+              * C3: Power <= 250 kVA, High Voltage (HTA)
+              * C2: Power > 250 kVA, High Voltage (HTA)
+              * C1: Power > 40,000 kVA, High Voltage (HT)
+              * T1: Gas < 6 MWh/year
+              * T2: Gas 6-300 MWh/year
+              * T3: Gas 300-5000 MWh/year
+              * T4: Gas > 5000 MWh/year
             - 'Date d'échéance' (Contract end date).
             - 'Tarif reglemente': True only if strictly TRV/Blue Tariff, else False (e.g. for 'Prix Fixe').
             """
@@ -290,7 +304,17 @@ def extract_data(pdf_input, first_page=None, last_page=None, supplier=None):
             Analyze this energy invoice. Extract the following:
             - Address: Split the street line into 'street_number' and 'street_name'.
             - 'Reference Point d'Energie': Look for 'Point de comptage et d'estimation' or 'Point de comptage et d'estimalion' (14 digits).
-            - 'Segment' (look for codes like T1, T2, C5, C4 near 'Acheminement').
+            - 'Segment': FORCIBLY return one of these codes ONLY: C1, C2, C3, C4, C5 (Electricity) or T1, T2, T3, T4 (Gas).
+              Use these rules to identify/verify:
+              * C5: Power <= 36 kVA, Low Voltage (BT)
+              * C4: Power 37-250 kVA, Low Voltage (BT)
+              * C3: Power <= 250 kVA, High Voltage (HTA)
+              * C2: Power > 250 kVA, High Voltage (HTA)
+              * C1: Power > 40,000 kVA, High Voltage (HT)
+              * T1: Gas < 6 MWh/year
+              * T2: Gas 6-300 MWh/year
+              * T3: Gas 300-5000 MWh/year
+              * T4: Gas > 5000 MWh/year
             - 'Date d'échéance' (Contract end date).
             - 'Tarif reglemente': True only if strictly TRV/Blue Tariff, else False (e.g. for 'Prix Fixe').
             """
@@ -299,10 +323,25 @@ def extract_data(pdf_input, first_page=None, last_page=None, supplier=None):
             Analyze this energy invoice. Extract the following:
             - Address: Split the street line into 'street_number' and 'street_name'.
             - 'Reference Point d'Energie' or PDL/PCE (14 digits).
-            - 'Segment' (look for codes like T1, T2, C5, C4 near 'Acheminement').
+            - 'Segment': FORCIBLY return one of these codes ONLY: C1, C2, C3, C4, C5 (Electricity) or T1, T2, T3, T4 (Gas).
+              Use these rules to identify/verify:
+              * C5: Power <= 36 kVA, Low Voltage (BT)
+              * C4: Power 37-250 kVA, Low Voltage (BT)
+              * C3: Power <= 250 kVA, High Voltage (HTA)
+              * C2: Power > 250 kVA, High Voltage (HTA)
+              * C1: Power > 40,000 kVA, High Voltage (HT)
+              * T1: Gas < 6 MWh/year
+              * T2: Gas 6-300 MWh/year
+              * T3: Gas 300-5000 MWh/year
+              * T4: Gas > 5000 MWh/year
             - 'Date d'échéance' (Contract end date).
             - 'Tarif reglemente': True only if strictly TRV/Blue Tariff, else False (e.g. for 'Prix Fixe').
             """
+
+        # Special rule for eDF_Facture files
+        check_name = getattr(pdf_input, "name", str(pdf_input))
+        if "eDF_Facture" in os.path.basename(check_name):
+            prompt += "\n- 'nom_du_site': Look for value under 'Nom du client'."
 
         # 4. Call Gemini 2.5 Flash
         try:
