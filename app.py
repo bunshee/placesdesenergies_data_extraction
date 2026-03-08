@@ -1,4 +1,5 @@
 import base64
+import io
 import json
 import logging
 import re
@@ -6,9 +7,10 @@ import tempfile
 import threading
 import time
 import zipfile
+import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 import streamlit as st
 
@@ -23,8 +25,56 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def download_pdf_from_url(url: str) -> Tuple[Optional[io.BytesIO], Optional[str], Optional[str]]:
+    """
+    Download a PDF from a URL, with special handling for Google Drive links.
+    Returns: (content_io, filename, error_message)
+    """
+    try:
+        # Handle Google Drive links
+        if "drive.google.com" in url:
+            # Extract file ID
+            file_id_match = re.search(r"/file/d/([a-zA-Z0-9_-]+)", url)
+            if file_id_match:
+                file_id = file_id_match.group(1)
+                url = f"https://drive.google.com/uc?export=download&id={file_id}"
+            else:
+                # Check for other formats like /open?id= or /uc?id=
+                file_id_match = re.search(r"[?&]id=([a-zA-Z0-9_-]+)", url)
+                if file_id_match:
+                    file_id = file_id_match.group(1)
+                    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+
+        response = requests.get(url, stream=True, timeout=30)
+        response.raise_for_status()
+
+        # Check content type if possible
+        content_type = response.headers.get("Content-Type", "")
+        if "application/pdf" not in content_type.lower() and "application/octet-stream" not in content_type.lower() and "drive.google.com" not in url:
+             logger.warning(f"URL might not be a PDF: {content_type}")
+
+        # Get filename from headers or URL
+        filename = "downloaded_file.pdf"
+        cd = response.headers.get("Content-Disposition")
+        if cd:
+            fn_match = re.search(r'filename="?([^"]+)"?', cd)
+            if fn_match:
+                filename = fn_match.group(1)
+        
+        if filename == "downloaded_file.pdf":
+            # Extract from URL path
+            path_parts = url.split("?")[0].split("/")
+            if path_parts[-1].lower().endswith(".pdf"):
+                filename = path_parts[-1]
+
+        return io.BytesIO(response.content), filename, None
+    except Exception as e:
+        logger.error(f"Error downloading from URL {url}: {str(e)}")
+        return None, None, str(e)
+
+
 def extract_with_retry(
-    pdf_file, first_page=None, last_page=None, supplier=None, max_retries=3
+    pdf_file, first_page=None, last_page=None, supplier=None, hints=None, max_retries=3
 ):
     """
     Extract data with retry mechanism that waits 60 seconds between retries.
@@ -35,7 +85,7 @@ def extract_with_retry(
     for attempt in range(max_retries):
         try:
             logger.info(f"Attempt {attempt + 1}/{max_retries} for {filename}")
-            result = extract_data(pdf_file, first_page, last_page, supplier)
+            result = extract_data(pdf_file, first_page, last_page, supplier, hints)
 
             # Check if extraction was successful
             if isinstance(result, dict) and "error" not in result:
@@ -102,6 +152,7 @@ def process_single_pdf(pdf_file: Path, index: int, total: int) -> Dict[str, Any]
             first_page=defaults["first_page"],
             last_page=defaults["last_page"],
             supplier=defaults["supplier"],
+            hints=defaults.get("hints"),
         )
 
         # Add filename info to result
@@ -385,6 +436,82 @@ def export_results_csv(results: List[Dict[str, Any]]) -> str:
     return output.getvalue()
 
 
+def export_results_excel(results: List[Dict[str, Any]]) -> bytes:
+    """
+    Convert results to Excel format (XLSX).
+    """
+    from io import BytesIO
+
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Extraction Results"
+
+    if not results:
+        output = BytesIO()
+        wb.save(output)
+        return output.getvalue()
+
+    # Define columns (same as CSV)
+    headers = [
+        "Fichier",
+        "Raison sociale",
+        "Fournisseur actuel",
+        "Fournisseur",
+        "Adresse",
+        "Code Postal",
+        "Ville",
+        "PDL/PCE",
+        "Segment",
+        "Tarif Réglementé",
+        "Echéance",
+        "Statut",
+        "Erreur",
+    ]
+    ws.append(headers)
+
+    for result in results:
+        filename_info = result.get("filename_info", {})
+        extracted_data = result.get("extraction", {})
+
+        if isinstance(extracted_data, str):
+            try:
+                extracted_data = json.loads(extracted_data)
+            except json.JSONDecodeError:
+                extracted_data = {}
+
+        # Handle address
+        address = extracted_data.get("adresse", {})
+        if isinstance(address, str):
+            full_address = address
+        else:
+            street_number = address.get("street_number", "")
+            street_name = address.get("street_name", "")
+            full_address = f"{street_number} {street_name}".strip()
+
+        row = [
+            filename_info.get("nom du fichier", result.get("filename", "")),
+            filename_info.get("Raison sociale", ""),
+            filename_info.get("Fournisseur actuel", ""),
+            extracted_data.get("fournisseur_actuel", ""),
+            full_address,
+            extracted_data.get("code_postal", ""),
+            extracted_data.get("ville", ""),
+            extracted_data.get("reference_point_energie", ""),
+            extracted_data.get("segment_energie", ""),
+            "Oui" if extracted_data.get("tarif_reglemente") else "Non",
+            extracted_data.get("date_echeance", ""),
+            "Erreur" if result.get("error") else "Succès",
+            result.get("error", ""),
+        ]
+        ws.append(row)
+
+    output = BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+
 def main():
     st.set_page_config(layout="wide", page_title="Extraction Factures")
 
@@ -420,9 +547,34 @@ def single_pdf_page():
         unsafe_allow_html=True,
     )
 
-    uploaded_file = st.file_uploader(
-        "Télécharger un PDF", type=["pdf"], accept_multiple_files=False
+    # Input selection
+    input_method = st.radio(
+        "Méthode d'importation",
+        ["📁 Télécharger un fichier", "🔗 Importer via un lien"],
+        horizontal=True,
+        key="input_method_radio"
     )
+
+    uploaded_file = None
+    url_input = ""
+
+    if input_method == "📁 Télécharger un fichier":
+        # Clear downloaded if switching to upload
+        if "downloaded_pdf" in st.session_state and st.session_state.get("last_input_method") != "upload":
+            del st.session_state.downloaded_pdf
+            del st.session_state.downloaded_filename
+        st.session_state.last_input_method = "upload"
+        
+        uploaded_file = st.file_uploader(
+            "Télécharger un PDF", type=["pdf"], accept_multiple_files=False
+        )
+    else:
+        st.session_state.last_input_method = "url"
+        url_input = st.text_input(
+            "Coller un lien (ex: Google Drive)",
+            placeholder="https://drive.google.com/file/d/...",
+            help="Prend en charge les liens Google Drive directs ou partagés."
+        )
 
     with st.expander("Comment utiliser cette application"):
         st.markdown(
@@ -445,12 +597,53 @@ def single_pdf_page():
         with col_pdf:
             st.subheader("📄 Aperçu du PDF")
             display_pdf(uploaded_file)
+    
+    elif url_input.strip():
+        # Handle URL input
+        if st.button("Charger le PDF depuis le lien", type="secondary"):
+            with st.spinner("Téléchargement du fichier..."):
+                pdf_content, filename, error = download_pdf_from_url(url_input)
+                if error:
+                    st.error(f"Erreur de téléchargement : {error}")
+                else:
+                    # Treat downloaded content as an uploaded file for consistent processing
+                    # We store it in session state to keep it across reruns
+                    st.session_state.downloaded_pdf = pdf_content
+                    st.session_state.downloaded_filename = filename
+                    st.success(f"Fichier '{filename}' chargé avec succès!")
+
+    # Check if we have a file (either uploaded or downloaded)
+    active_pdf = None
+    active_filename = ""
+
+    if uploaded_file:
+        active_pdf = uploaded_file
+        active_filename = uploaded_file.name
+    elif "downloaded_pdf" in st.session_state:
+        active_pdf = st.session_state.downloaded_pdf
+        active_filename = st.session_state.downloaded_filename
+
+    if active_pdf:
+        # If we just switched or cleared, handle that UI-wise if needed
+        # (Streamlit handles most of this automatically)
+
+        # Create two columns: 60% for PDF, 40% for results
+        col_pdf, col_results = st.columns([0.6, 0.4], gap="medium")
+
+        with col_pdf:
+            st.subheader("📄 Aperçu du PDF")
+            # For BytesIO, we need to create a wrapper that has a 'getvalue' method if display_pdf expects it
+            # Actually display_pdf uses file.getvalue() which BytesIO has.
+            # But it also needs to be reset to 0
+            if hasattr(active_pdf, "seek"):
+                active_pdf.seek(0)
+            display_pdf(active_pdf)
 
         with col_results:
             st.subheader("📋 Données extraites")
 
             # Get defaults based on filename
-            defaults = get_extraction_defaults(uploaded_file.name)
+            defaults = get_extraction_defaults(active_filename)
 
             # Display detected info and controls
             c1, c2 = st.columns(2)
@@ -500,13 +693,14 @@ def single_pdf_page():
                                 first_page = None
                                 last_page = None
 
-                        filename_data = parse_filename(uploaded_file.name)
+                        filename_data = parse_filename(active_filename)
 
                         result = extract_data(
-                            uploaded_file,
+                            active_pdf,
                             first_page=first_page,
                             last_page=last_page,
                             supplier=defaults["supplier"],
+                            hints=defaults.get("hints"),
                         )
 
                         # Check for error in the top-level dictionary
@@ -637,7 +831,7 @@ def single_pdf_page():
                                 st.download_button(
                                     label="Télécharger JSON",
                                     data=json_data,
-                                    file_name=f"extraction_{Path(uploaded_file.name).stem}.json",
+                                    file_name=f"extraction_{Path(active_filename).stem}.json",
                                     mime="application/json",
                                     use_container_width=True,
                                 )
@@ -902,7 +1096,7 @@ def batch_extraction_page():
                 st.markdown("---")
                 st.subheader("💾 Télécharger les résultats")
 
-                col1, col2 = st.columns(2)
+                col1, col2, col3 = st.columns(3)
 
                 with col1:
                     # JSON download
@@ -928,6 +1122,17 @@ def batch_extraction_page():
                         data=csv_data,
                         file_name=f"{filename_base}.csv",
                         mime="text/csv",
+                        use_container_width=True,
+                    )
+
+                with col3:
+                    # Excel download
+                    excel_data = export_results_excel(results)
+                    st.download_button(
+                        label="📗 Télécharger Excel",
+                        data=excel_data,
+                        file_name=f"{filename_base}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True,
                     )
 
