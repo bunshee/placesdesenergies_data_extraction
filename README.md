@@ -1,172 +1,66 @@
-## placesdesenergies_data_extraction
+# Places des Energies - Data Extraction
 
-Extraction structurée de données issues de factures d’énergie (EDF, Gaz Européen, Engie, etc.) avec une approche robuste et hybride (OCR + NLP + règles + modèles ML) pour produire un format standardisé, dédupliquer par référence (PCE/PDL/PRM) et conserver la facture la plus récente.
+This repository contains tools to automatically extract data from energy bills (PDFs) using the Gemini API. It includes batch processing scripts and a Streamlit user interface for manual, single-file extractions.
 
-### Objectif
-Développer un script ou module capable d’extraire des informations spécifiques des factures d’énergie françaises (gaz et électricité), provenant de différents fournisseurs, et de les structurer dans un format unique et exploitable.
+## Environment Setup
 
-### Données à extraire (schéma cible)
-- Nom du site
-- Référence Point d’Énergie: PRM/PDL (électricité) ou PCE (gaz) + type + longueur
-- Adresse de consommation (prioritaire) et, si présent, adresse de facturation
-- Code postal (lieu de consommation)
-- Commune (lieu de consommation)
-- Segment énergie: Gaz/Électricité, type d’offre (ex: Prix Fixe, Contrat Garanti, Offre verte), et segment tarifaire (T1–T4, C1–C5)
-- Date d’échéance du contrat, ou sinon: date de souscription, préavis de résiliation, modalités (ex: durée indéterminée, révision annuelle)
-- Fournisseur actuel
-- SIREN/SIRET du client (si présent)
-- Tarif réglementé: Oui/Non (déduit du libellé de l’offre)
+The project requires **Python 3.12+** and uses [uv](https://github.com/astral-sh/uv) or `pip` for dependency management.
 
-## Pipeline d'extraction
-Le pipeline est simple et direct:
-
-1. **Entrée PDF**: L'utilisateur soumet un fichier PDF via l'API
-2. **Extraction de texte**: PyMuPDF (`pymupdf`) extrait le texte du PDF
-3. **Extraction structurée**: Le texte est envoyé à Google Gemini (`gemini-2.5-flash`) avec un prompt pour extraire les données structurées
-4. **Sortie**: Retour d'un objet JSON conforme au schéma `EnergyInvoiceRecord`
-
-Le schéma Pydantic valide automatiquement les types et formats.
-
-## Choix technologiques (state of the art pragmatique)
-- Langage: Python 3.11+
-- PDFs natifs: `pymupdf` pour texte.
-- Extraction structurée: `google-genai` avec modèle `gemini-2.5-flash` et schéma Pydantic.
-- Normalisation & schéma: `pydantic` v2.
-- API: FastAPI pour exposer l'endpoint d'extraction.
-- Tests: `pytest` pour les tests unitaires.
-
-Remarque: on combine règles + ML pour la robustesse cross-fournisseurs, tout en gardant un coût d’inférence raisonnable.
-
-## Schéma de données (Pydantic)
-```python
-from typing import Optional, Literal
-from pydantic import BaseModel, Field
-
-EnergyReferenceType = Literal["PCE", "PDL", "PRM"]
-
-class EnergyInvoiceRecord(BaseModel):
-    document_date: Optional[str] = Field(None, description="YYYY-MM-DD si connu")
-    supplier: Optional[str]
-    site_name: Optional[str]
-    energy_reference: Optional[str]
-    energy_reference_type: Optional[EnergyReferenceType]
-    energy_reference_length: Optional[int]
-    address_consumption: Optional[str]
-    address_billing: Optional[str]
-    postal_code: Optional[str]
-    city: Optional[str]
-    energy_segment: Optional[str]  # Gaz/Électricité
-    offer_tags: list[str] = []
-    tariff_segment: Optional[str]  # ex: T2, C3
-    contract_expiry_date: Optional[str]
-    contract_start_date: Optional[str]
-    termination_notice: Optional[str]  # ex: "30 jours"
-    renewal_terms: Optional[str]       # ex: "Durée indéterminée, révision annuelle"
-    client_siren_siret: Optional[str]
-    regulated_tariff: Optional[Literal["Oui", "Non"]]
-```
-
-## Règles métier clés
-- Les champs sont extraits tels que présents dans le document
-- Si un champ est introuvable: valeur `null` ou `N/A` dans le JSON
-- Le LLM analyse le document et remplit automatiquement le schéma structuré
-
-## Fonctionnalités
-- **Extraction structurée**: Conversion automatique de PDFs de factures d'énergie en données JSON structurées
-- **API REST**: Interface HTTP simple avec FastAPI
-- **Validation automatique**: Schéma Pydantic pour garantir la cohérence des données
-- **Logging**: Traçabilité complète des extractions via Loguru
-
-## Arborescence
-```
-placesdesenergies_data_extraction/
-  ├─ src/
-  │  ├─ api/
-  │  │  └─ main.py          # FastAPI endpoints
-  │  ├─ genai/
-  │  │  └─ extractor.py     # LLM extraction logic
-  │  ├─ ingestion/
-  │  │  └─ loader.py        # PDF text extraction
-  │  ├─ models/
-  │  │  └─ schema.py        # Pydantic schema
-  │  └─ utils/
-  │     └─ logging.py       # Logger configuration
-  ├─ tests/
-  ├─ requirements.txt
-  ├─ main.py                # Server entry point
-  └─ README.md
-```
-
-## Installation (proposée)
 ```bash
-python -m venv .venv && source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-export GEMINI_API_KEY=your_api_key_here
+# 1. Install dependencies using uv (recommended)
+uv sync
+
+# Or using pip:
+pip install -e .
+
+# 2. Setup your environment variables
+cp .env.example .env
+# Open .env and add your GEMINI_API_KEY and other parameters
 ```
 
-Les dépendances essentielles:
-```
-pymupdf>=1.24.9         # Extraction de texte PDF
-pydantic>=2.7           # Schéma de validation
-fastapi>=0.115          # API REST
-uvicorn[standard]>=0.30 # Serveur ASGI
-google-genai>=0.3.0     # Client Gemini
-loguru>=0.7.2           # Logging
-pytest>=8.2             # Tests
-```
+## Available Commands
 
-## API FastAPI (server)
-Exposer l’extraction via endpoints HTTP (Python 3.12):
+Here are all the executable scripts and commands in the repository, and how to use them.
 
-### Lancer le serveur
+### 1. Batch Extraction (`batch_extract.py`)
+
+The batch extraction script processes all PDF files located in `data/bills/`. 
+*(Note: It expects `data/routing_results.json` and `data/supplier_rules_all.json` to be present).*
+
+It groups outputs into `data/extraction_results_all.json` and `data/extraction_results_all.csv`.
+
 ```bash
-uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+# Process all PDFs in data/bills/
+python batch_extract.py
+
+# Attempt to resume, skipping any PDFs already present in the output JSON
+python batch_extract.py --resume
 ```
 
-### Endpoints
-- `GET /health` → Vérification du statut de l'API
-- `POST /extract` → Extrait les données structurées d'une facture PDF
-  - Input: fichier PDF (multipart/form-data)
-  - Output: objet JSON `EnergyInvoiceRecord` ou `null` si extraction échoue
+### 2. Export / Format Results (`export_excel_format.py`)
 
-Exemple d'utilisation:
+This script converts the existing `data/extraction_results_all.json` into a specific flat CSV format designed for Excel import (`data/extraction_results_excel_format.csv`).
+
 ```bash
-curl -F "file=@/path/facture.pdf" http://localhost:8000/extract
+# Execute the formatter script
+python export_excel_format.py
 ```
 
-## Performance
-- Temps de traitement typique: 2-5 secondes par document (selon la taille)
-- Dépend de la latence API Gemini et de la complexité du PDF
+### 3. Streamlit Web UI (`app.py`)
 
-## Gestion des cas limites
-- PDFs scannés: non supportés (nécessiteraient OCR)
-- Champs absents: retourne `null` dans le JSON
-- Texte vide: retourne `null` comme résultat
+Launches a web interface where you can drag & drop individual PDFs, visualize them, and run single extractions. It's especially useful for testing.
 
-## Sécurité
-- Aucune persistance des documents uploadés
-- Données sensibles (SIREN/SIRET, adresses) à protéger selon vos besoins
-- Variable d'environnement `GEMINI_API_KEY` requise
+```bash
+# Launch the local Streamlit server
+streamlit run src/places_extractor/ui/app.py
+```
+After running this command, simply go to your browser and open `http://localhost:8501` to use the application.
 
-## Exemple de sortie
-```json
-{
-  "document_date": "2025-10-13",
-  "supplier": "EDF",
-  "site_name": "SDC LE JARDIN DU CEDRE",
-  "energy_reference": "25841823335979",
-  "energy_reference_type": "PCE",
-  "energy_reference_length": 14,
-  "address_consumption": "107 AVENUE CHARLES DE GAULLE LE JARDIN DU CEDRE A, 84130 LE PONTET",
-  "postal_code": "84130",
-  "city": "LE PONTET",
-  "energy_segment": "Gaz",
-  "offer_tags": [],
-  "tariff_segment": "T2",
-  "contract_expiry_date": null,
-  "contract_start_date": "2019-06-13",
-  "termination_notice": "30 jours",
-  "client_siren_siret": "349759647",
-  "regulated_tariff": "Non"
-}
+### 4. Running Tests
+
+The application is configured to use `pytest` for unit testing. 
+
+```bash
+# Run the test suite found in the tests/ directory
+pytest tests/
+```
