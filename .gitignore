@@ -1,11 +1,25 @@
-*.pdf
-.env
-.ruff_cache
-.venv
 __pycache__/
-.mypy_cache/
-tests/
-notebooks/
-tests/
-data/
+.venv/
+.env
 *.log
+*.zip
+*.json
+*.xlsx
+!clean_rules.json
+!extracted_rules_tmp.json
+
+# Data & Logs
+data/*
+!data/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# Ruff
+.ruff_cache/
+
+# Mypy
+.mypy_cache/
+
+# Pytest
+.pytest_cache/
+*.ipynb

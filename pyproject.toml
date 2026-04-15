@@ -1,7 +1,7 @@
 [project]
 name = "placesdesenergies-data-extraction"
 version = "0.1.0"
-description = "Add your description here"
+description = "Energy invoice data extraction using Gemini API"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -11,4 +11,23 @@ dependencies = [
     "pillow>=11.0.0",
     "python-dotenv>=1.0.1",
     "streamlit>=1.40.0",
+    "requests>=2.31.0",
+    "pydantic>=2.12.3",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "PL", "RUF"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
